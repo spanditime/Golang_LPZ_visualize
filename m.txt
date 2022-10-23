@@ -1,0 +1,233 @@
+package main
+
+import (
+	"fmt"
+	"image/color"
+	"math"
+
+	"github.com/fogleman/gg"
+)
+
+type point struct {
+	y float64
+	x float64
+}
+
+// Newpoint returns new point.
+func Newpoint(y float64, x float64) point {
+	return point{y, x}
+}
+
+type line struct {
+	p1 point
+	p2 point
+}
+
+// Newline returns new line.
+func Newline(y1 float64, x1 float64, y2 float64, x2 float64) line {
+	return line{Newpoint(y1, x1), Newpoint(y2, x2)}
+}
+
+type L struct {
+	variables point
+	comp      func(float64, float64) bool
+	result    float64
+}
+
+type LPZ struct {
+	A []L
+}
+
+func (l *L) calculateValue(p point) float64 {
+	return p.x*l.variables.x + p.y*l.variables.y
+}
+
+func (l *L) calculate(p point) bool {
+	return l.comp(l.calculateValue(p), l.result)
+}
+
+func (lpz *LPZ) getLines(maxy float64, maxx float64) []line {
+	var result []line
+	for _, Eq := range lpz.A {
+		result = append(result, Eq.getLineM(maxy, maxx))
+	}
+	return result
+}
+
+func (Eq *L) getLine() line {
+	return Eq.getLineM(1, 1)
+}
+func (Eq *L) getLineM(maxy float64, maxx float64) line {
+	if Eq.variables.x == 0 {
+		return Newline(0, Eq.result/Eq.variables.y, maxy, Eq.result/Eq.variables.y)
+	} else if Eq.variables.y == 0 {
+		return Newline(Eq.result/Eq.variables.x, 0, Eq.result/Eq.variables.x, maxx)
+	}
+	Line := Newline(Eq.result/Eq.variables.y, 0., 0., Eq.result/Eq.variables.x)
+	var p1, p2 point = intersection(Line, Newline(0, 0, 1, 0)), intersection(Line, Newline(0, 0, 0, 1))
+	var p3, p4 point = intersection(Line, Newline(0, maxx, 1, maxx)), intersection(Line, Newline(maxy, 0, maxy, 1))
+	if p1.x < 0 || p1.y < 0 {
+		p1 = p3
+	}
+	if p2.x < 0 || p2.y < 0 {
+		p2 = p4
+	}
+	return line{p1, p2}
+}
+
+func (Line *line) getCanonicalForm() (float64, float64, float64) {
+	if Line.p2.x == Line.p1.x {
+		return 1, 0, Line.p1.x
+	} else if Line.p2.y == Line.p1.y {
+		return 0, 1, Line.p1.y
+	}
+	a := 1. / (Line.p2.x - Line.p1.x)
+	b := 1. / (Line.p1.y - Line.p2.y)
+	c := Line.p1.y*b + Line.p1.x*a
+	return a, b, c
+}
+
+func intersection(l1 line, l2 line) point {
+	a1, b1, c1 := l1.getCanonicalForm()
+	a2, b2, c2 := l2.getCanonicalForm()
+	return point{(c1*a2 - c2*a1) / (a1*b2 - b1*a2), (b1*c2 - b2*c1) / (a1*b2 - a2*b1)}
+}
+
+func (lpz LPZ) getArea() ([]line, []point, float64, float64) {
+	points := []point{Newpoint(0, 100), Newpoint(0, 0), Newpoint(100, 0)}
+	for _, l := range lpz.A {
+		var beg, end int = -1, -1
+		for i, p := range points {
+			if beg == -1 && l.calculate(p) {
+				beg = i
+			} else if beg != -1 && end == -1 && !l.calculate(p) {
+				end = i - 1
+			} else if beg != -1 && end != -1 && l.calculate(p) {
+				end = beg
+				beg = i
+				break
+			}
+		}
+		if beg == -1 {
+			fmt.Println("Error")
+			continue
+		}
+		if end == -1 {
+			end = len(points) - 1
+		}
+
+		var bp1, bp2, ep1, ep2 point
+		bp2, ep2 = points[beg], points[end]
+		if beg == 0 {
+			bp1 = points[len(points)-1]
+		} else {
+			bp1 = points[beg-1]
+		}
+		if end == 0 {
+			ep1 = points[len(points)-1]
+		} else {
+			ep1 = points[end-1]
+		}
+		Line := l.getLine()
+		var p1 point = intersection(Line, Newline(bp1.y, bp1.x, ep1.y, ep1.x))
+		var p2 point = intersection(Line, Newline(bp2.y, bp2.x, ep2.y, ep2.x))
+		if end < beg {
+			points = append(append(points[:end+1], p1, p2), points[beg:]...)
+		} else {
+			points = append(append(points[:beg+1], p1, p2), points[end:]...)
+		}
+		var i int = 0
+		for i != len(points) {
+			if points[i] == points[(i+1)%len(points)] {
+				points = append(points[:i], points[i+1:]...)
+			} else {
+				i += 1
+			}
+		}
+	}
+	var my, mx float64 = 0., 0.
+	for _, p := range points {
+		my = math.Max(p.y, my)
+		mx = math.Max(p.x, mx)
+	}
+	my, mx = math.Floor(my+3), math.Floor(mx+3)
+	return lpz.getLines(my, mx), points, my, mx
+}
+
+// Z = 3x1 + x2
+// -x1 + x2 >= 1
+// x1 + 3x2 <= 15
+// -2x1 + x2 <= 4
+func main() {
+	var lpz LPZ = LPZ{
+		[]L{
+			{Newpoint(-1, 1),
+				func(f1, f2 float64) bool { return f1 >= f2 },
+				1,
+			},
+			{Newpoint(1, 3),
+				func(f1, f2 float64) bool { return f1 <= f2 },
+				15,
+			},
+			{Newpoint(-2, 1),
+				func(f1, f2 float64) bool { return f1 <= f2 },
+				4,
+			},
+		},
+	}
+	var Z L
+	Z.variables = point{3, 1}
+
+	lines, points, my, mx := lpz.getArea()
+	fmt.Println(points)
+
+	var maxF, minF point = points[0], points[0]
+	var maxFV, minFV float64 = Z.calculateValue(maxF), Z.calculateValue(minF)
+	for _, p := range points {
+		value := Z.calculateValue(p)
+		if maxFV < value {
+			maxF = p
+			maxFV = value
+		}
+		if minFV > value {
+			minF = p
+			minFV = value
+		}
+	}
+
+	var width, height int
+	height = 500
+	width = int(float64(height) * mx / my)
+	fmt.Println(width, " ", height)
+	var ratio float64 = float64(height) / my
+	dc := gg.NewContext(width, height)
+
+	grad := gg.NewLinearGradient(minF.x*ratio,
+		minF.y*ratio,
+		maxF.x*ratio,
+		maxF.y*ratio)
+	grad.AddColorStop(0, color.RGBA{220, 8, 7, 255})
+	grad.AddColorStop(1, color.RGBA{10, 232, 11, 255})
+
+	dc.SetStrokeStyle(grad)
+	// dc.SetLineWidth(4)
+	// for i, p := range points {
+	// 	if i == 0 {
+	// 		dc.MoveTo(p.x*ratio, p.y*ratio)
+	// 	} else {
+	// 		dc.LineTo(p.x*ratio, p.y*ratio)
+	// 	}
+	// }
+	// dc.Stroke()
+
+	dc.SetLineWidth(2)
+	ratio = 20
+	// lines = lpz.getLines(40, 40)
+	for _, L := range lines {
+		dc.MoveTo(L.p1.x*ratio, L.p1.y*ratio)
+		dc.LineTo(L.p2.x*ratio, L.p2.y*ratio)
+	}
+	dc.ClosePath()
+	dc.Stroke()
+	dc.SavePNG("result.png")
+}
